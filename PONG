@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>JEDAI Pong</title>
+  <style>
+    body {
+      margin: 0;
+      background: linear-gradient(to bottom, #0d0221, #150050);
+      font-family: 'Orbitron', sans-serif;
+      position: relative;
+      overflow-x: hidden;
+    }
+    canvas {
+      background: radial-gradient(circle at center, #1e003e 0%, #000010 100%);
+      display: block;
+      margin: 20px auto;
+      border: 4px solid #00ffff;
+      box-shadow: 0 0 30px #00ffff;
+      z-index: 1;
+      position: relative;
+    }
+    #controls {
+      text-align: center;
+      margin-top: 20px;
+      z-index: 1;
+      position: relative;
+    }
+    #controls select, #controls button {
+      padding: 10px;
+      font-size: 16px;
+      margin: 0 10px;
+      border-radius: 5px;
+      border: none;
+    }
+    h1 {
+      text-align: center;
+      color: #00ffff;
+      margin-top: 10px;
+      font-size: 36px;
+      text-shadow: 0 0 10px #00ffff;
+    }
+    #rules, #history {
+      position: absolute;
+      width: 200px;
+      background: rgba(0, 255, 255, 0.1);
+      border: 2px solid #00ffff;
+      border-radius: 10px;
+      padding: 15px;
+      color: #00ffff;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 14px;
+      box-shadow: 0 0 10px #00ffff;
+      z-index: 1;
+    }
+    #rules {
+      right: 30px;
+      top: 150px;
+    }
+    #history {
+      left: 30px;
+      top: 150px;
+    }
+    #rules h2, #history h2 {
+      margin-top: 0;
+      font-size: 18px;
+      text-align: center;
+      text-shadow: 0 0 5px #00ffff;
+    }
+    #rules ul, #history ul {
+      list-style: none;
+      padding-left: 0;
+    }
+    #rules li, #history li {
+      margin-bottom: 8px;
+      text-shadow: 0 0 5px #00ffff;
+    }
+    #tech-grid {
+      position: absolute;
+      bottom: 0;
+      width: 100%;
+      height: 250px;
+      background:
+        linear-gradient(to right, rgba(0, 255, 255, 0.07) 1px, transparent 1px),
+        linear-gradient(to top, rgba(0, 255, 255, 0.07) 1px, transparent 1px);
+      background-size: 40px 40px;
+      z-index: 0;
+      animation: gridGlow 6s linear infinite;
+    }
+    @keyframes gridGlow {
+      0% { background-position: 0 0; }
+      100% { background-position: 40px 40px; }
+    }
+  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <h1>JEDAI</h1>
+  <div id="controls">
+    <label for="difficulty" style="color:#00ffff; font-size: 18px;">Select Difficulty:</label>
+    <select id="difficulty">
+      <option value="3">Easy</option>
+      <option value="5" selected>Medium</option>
+      <option value="6.5">Hard</option>
+    </select>
+    <button onclick="startGame()">Start Game</button>
+  </div>
+
+  <canvas id="pong" width="600" height="400"></canvas>
+
+  <div id="rules">
+    <h2>Rules</h2>
+    <ul>
+      <li>First to 26 points wins</li>
+      <li>Gold ball = +3 points</li>
+      <li>Only 1 gold ball at a time</li>
+      <li>New gold spawns 10s after hit</li>
+      <li>Use ↑ and ↓ to move</li>
+      <li>Hit angle changes ball direction</li>
+      <li>Choose AI difficulty before start</li>
+    </ul>
+  </div>
+
+  <div id="history">
+    <h2>Score History</h2>
+    <ul id="historyList"></ul>
+    <p style="text-align: center; font-size: 14px;">Win Streak: <span id="streak">0</span></p>
+  </div>
+
+  <div id="tech-grid"></div>
+
+  <script>
+    const canvas = document.getElementById("pong");
+    const ctx = canvas.getContext("2d");
+
+    const paddleWidth = 10, paddleHeight = 100;
+    const ballSize = 10;
+    let leftScore = 0, rightScore = 0;
+    let aiSpeed = 5;
+    let gameRunning = false;
+    let goldBall = null;
+
+    let winStreak = parseInt(localStorage.getItem('winStreak')) || 0;
+    let history = JSON.parse(localStorage.getItem('gameHistory')) || [];
+
+    document.getElementById('streak').innerText = winStreak;
+    const historyList = document.getElementById('historyList');
+    history.slice(-5).forEach(r => {
+      const li = document.createElement('li');
+      li.textContent = r;
+      historyList.appendChild(li);
+    });
+
+    let leftPaddle = { x: 20, y: canvas.height / 2 - paddleHeight / 2 };
+    let rightPaddle = { x: canvas.width - 30, y: canvas.height / 2 - paddleHeight / 2 };
+    let ball = { x: canvas.width / 2, y: canvas.height / 2, vx: 0, vy: 0 };
+
+    function drawCourt() {
+      ctx.strokeStyle = '#00ffff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(50, 30, canvas.width - 100, canvas.height - 60);
+      ctx.beginPath(); ctx.moveTo(canvas.width / 2, 30); ctx.lineTo(canvas.width / 2, canvas.height - 30); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(50, canvas.height / 2); ctx.lineTo(canvas.width - 50, canvas.height / 2); ctx.stroke();
+    }
+
+    function drawCoolPaddle(x, y, color1, color2) {
+      const gradient = ctx.createLinearGradient(x, y, x + paddleWidth, y + paddleHeight);
+      gradient.addColorStop(0, color1); gradient.addColorStop(1, color2);
+      ctx.fillStyle = gradient; ctx.shadowBlur = 15; ctx.shadowColor = color2;
+      ctx.fillRect(x, y, paddleWidth, paddleHeight); ctx.shadowBlur = 0;
+    }
+
+    function drawBall(x, y, size, color, glow = true) {
+      ctx.fillStyle = color; ctx.shadowBlur = glow ? 20 : 0;
+      ctx.shadowColor = glow ? color : 'transparent';
+      ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+    }
+
+    function drawScore() {
+      ctx.fillStyle = '#00ffff'; ctx.font = '24px Orbitron';
+      ctx.fillText(leftScore, 150, 25); ctx.fillText(rightScore, 450, 25);
+    }
+
+    function resetBall() {
+      ball.x = canvas.width / 2; ball.y = canvas.height / 2;
+      ball.vx = 5 * (Math.random() > 0.5 ? 1 : -1);
+      do { ball.vy = 5 * (Math.random() * 2 - 1); }
+      while (Math.abs(ball.vy) < 1.5);
+    }
+
+    function recordResult(win) {
+      const result = win ? "Win" : "Loss";
+      history.push(result);
+      if (history.length > 20) history.shift();
+      localStorage.setItem('gameHistory', JSON.stringify(history));
+      const li = document.createElement('li');
+      li.textContent = result;
+      historyList.appendChild(li);
+      if (historyList.children.length > 5) historyList.removeChild(historyList.children[0]);
+
+      winStreak = win ? winStreak + 1 : 0;
+      localStorage.setItem('winStreak', winStreak);
+      document.getElementById('streak').innerText = winStreak;
+    }
+
+    function checkGameOver() {
+      if (leftScore >= 26 || rightScore >= 26) {
+        const playerWon = rightScore >= 26;
+        alert(playerWon ? "You Win!" : "AI Wins!");
+        recordResult(playerWon);
+        gameRunning = false;
+        goldBall = null;
+      }
+    }
+
+    function update() {
+      if (!gameRunning) return;
+
+      ball.x += ball.vx;
+      ball.y += ball.vy;
+
+      if (ball.y < 0 || ball.y > canvas.height) ball.vy = -ball.vy;
+
+      if (ball.x <= leftPaddle.x + paddleWidth && ball.y >= leftPaddle.y && ball.y <= leftPaddle.y + paddleHeight) {
+        const relIntersect = (ball.y - leftPaddle.y - paddleHeight / 2) / (paddleHeight / 2);
+        ball.vx = -ball.vx * 1.05; ball.vy = 5 * relIntersect;
+      }
+
+      if (ball.x >= rightPaddle.x && ball.y >= rightPaddle.y && ball.y <= rightPaddle.y + paddleHeight) {
+        const relIntersect = (ball.y - rightPaddle.y - paddleHeight / 2) / (paddleHeight / 2);
+        ball.vx = -ball.vx * 1.05; ball.vy = 5 * relIntersect;
+      }
+
+      if (ball.x < 0) { rightScore++; resetBall(); checkGameOver(); }
+      if (ball.x > canvas.width) { leftScore++; resetBall(); checkGameOver(); }
+
+      const aiCenter = leftPaddle.y + paddleHeight / 2;
+      if (aiCenter < ball.y - 15) leftPaddle.y += aiSpeed;
+      else if (aiCenter > ball.y + 15) leftPaddle.y -= aiSpeed;
+      leftPaddle.y = Math.max(0, Math.min(canvas.height - paddleHeight, leftPaddle.y));
+
+      if (goldBall && Math.abs(ball.x - goldBall.x) < 10 && Math.abs(ball.y - goldBall.y) < 10) {
+        rightScore += 3;
+        goldBall = null;
+        checkGameOver();
+        setTimeout(spawnGoldBall, 10000);
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawCourt();
+      drawCoolPaddle(leftPaddle.x, leftPaddle.y, "#ff0033", "#ff66cc");
+      drawCoolPaddle(rightPaddle.x, rightPaddle.y, "#00ffff", "#66ffff");
+      drawBall(ball.x, ball.y, ballSize, "#ffffff");
+      if (goldBall) drawBall(goldBall.x, goldBall.y, 6, "#FFD700", true);
+      drawScore();
+    }
+
+    function game() {
+      update();
+      draw();
+    }
+
+    setInterval(game, 1000 / 60);
+
+    function startGame() {
+      const difficulty = document.getElementById('difficulty').value;
+      aiSpeed = parseFloat(difficulty);
+      leftScore = 0; rightScore = 0;
+      goldBall = null;
+      resetBall();
+      gameRunning = true;
+      setTimeout(spawnGoldBall, 10000);
+    }
+
+    function spawnGoldBall() {
+      if (!gameRunning || goldBall) return;
+      goldBall = {
+        x: Math.random() * (canvas.width - 100) + 50,
+        y: Math.random() * (canvas.height - 60) + 30
+      };
+    }
+
+    document.addEventListener("keydown", function (e) {
+      const step = 20;
+      if (e.key === "ArrowUp") rightPaddle.y -= step;
+      if (e.key === "ArrowDown") rightPaddle.y += step;
+      rightPaddle.y = Math.max(0, Math.min(canvas.height - paddleHeight, rightPaddle.y));
+    });
+  </script>
+</body>
+</html
