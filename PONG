@@ -112,13 +112,13 @@
   <div id="rules">
     <h2>Rules</h2>
     <ul>
-      <li>First to 26 points wins</li>
+      <li>First to 11 points wins</li>
       <li>Gold ball = +3 points</li>
+      <li>Whoever hit ball last earns gold points</li>
       <li>Only 1 gold ball at a time</li>
       <li>New gold spawns 10s after hit</li>
       <li>Use ↑ and ↓ to move</li>
-      <li>Hit angle changes ball direction</li>
-      <li>Choose AI difficulty before start</li>
+      <li>Ball starts after paddle moves</li>
     </ul>
   </div>
 
@@ -140,6 +140,8 @@
     let aiSpeed = 5;
     let gameRunning = false;
     let goldBall = null;
+    let ballFrozen = false;
+    let lastTouchedBy = null;
 
     let winStreak = parseInt(localStorage.getItem('winStreak')) || 0;
     let history = JSON.parse(localStorage.getItem('gameHistory')) || [];
@@ -183,10 +185,21 @@
     }
 
     function resetBall() {
-      ball.x = canvas.width / 2; ball.y = canvas.height / 2;
+      ball.x = canvas.width / 2;
+      ball.y = canvas.height / 2;
+      ball.vx = 0;
+      ball.vy = 0;
+      ballFrozen = true;
+      lastTouchedBy = null;
+    }
+
+    function unfreezeBall() {
+      if (!ballFrozen) return;
       ball.vx = 5 * (Math.random() > 0.5 ? 1 : -1);
-      do { ball.vy = 5 * (Math.random() * 2 - 1); }
-      while (Math.abs(ball.vy) < 1.5);
+      do {
+        ball.vy = 5 * (Math.random() * 2 - 1);
+      } while (Math.abs(ball.vy) < 1.5);
+      ballFrozen = false;
     }
 
     function recordResult(win) {
@@ -205,8 +218,8 @@
     }
 
     function checkGameOver() {
-      if (leftScore >= 26 || rightScore >= 26) {
-        const playerWon = rightScore >= 26;
+      if (leftScore >= 11 || rightScore >= 11) {
+        const playerWon = rightScore >= 11;
         alert(playerWon ? "You Win!" : "AI Wins!");
         recordResult(playerWon);
         gameRunning = false;
@@ -215,7 +228,7 @@
     }
 
     function update() {
-      if (!gameRunning) return;
+      if (!gameRunning || ballFrozen) return;
 
       ball.x += ball.vx;
       ball.y += ball.vy;
@@ -225,11 +238,13 @@
       if (ball.x <= leftPaddle.x + paddleWidth && ball.y >= leftPaddle.y && ball.y <= leftPaddle.y + paddleHeight) {
         const relIntersect = (ball.y - leftPaddle.y - paddleHeight / 2) / (paddleHeight / 2);
         ball.vx = -ball.vx * 1.05; ball.vy = 5 * relIntersect;
+        lastTouchedBy = 'ai';
       }
 
       if (ball.x >= rightPaddle.x && ball.y >= rightPaddle.y && ball.y <= rightPaddle.y + paddleHeight) {
         const relIntersect = (ball.y - rightPaddle.y - paddleHeight / 2) / (paddleHeight / 2);
         ball.vx = -ball.vx * 1.05; ball.vy = 5 * relIntersect;
+        lastTouchedBy = 'player';
       }
 
       if (ball.x < 0) { rightScore++; resetBall(); checkGameOver(); }
@@ -241,7 +256,8 @@
       leftPaddle.y = Math.max(0, Math.min(canvas.height - paddleHeight, leftPaddle.y));
 
       if (goldBall && Math.abs(ball.x - goldBall.x) < 10 && Math.abs(ball.y - goldBall.y) < 10) {
-        rightScore += 3;
+        if (lastTouchedBy === 'player') rightScore += 3;
+        else leftScore += 3;
         goldBall = null;
         checkGameOver();
         setTimeout(spawnGoldBall, 10000);
@@ -285,10 +301,16 @@
 
     document.addEventListener("keydown", function (e) {
       const step = 20;
-      if (e.key === "ArrowUp") rightPaddle.y -= step;
-      if (e.key === "ArrowDown") rightPaddle.y += step;
+      if (e.key === "ArrowUp") {
+        rightPaddle.y -= step;
+        unfreezeBall();
+      }
+      if (e.key === "ArrowDown") {
+        rightPaddle.y += step;
+        unfreezeBall();
+      }
       rightPaddle.y = Math.max(0, Math.min(canvas.height - paddleHeight, rightPaddle.y));
     });
   </script>
 </body>
-</html
+</html>
